@@ -13,7 +13,6 @@ A compact desktop lost-and-found system for SRM University-AP. It is written in 
 ## Run
 
 ```bash
-cd /home/yogit/CampusMysteryJava
 mvn javafx:run
 ```
 
