@@ -1,0 +1,14 @@
+.root { -fx-font-family: "Segoe UI", Arial, sans-serif; -fx-background-color: #f5f7fb; }
+.login-page { -fx-background-color: linear-gradient(to bottom right, #14213d, #274c77); }
+.card { -fx-background-color: white; -fx-background-radius: 14; -fx-effect: dropshadow(gaussian, rgba(0,0,0,.22), 20, .15, 0, 6); }
+.title { -fx-font-size: 26px; -fx-font-weight: bold; -fx-text-fill: #14213d; }
+.subtitle, .hint { -fx-text-fill: #5d6878; }
+.header { -fx-background-color: #14213d; }
+.brand { -fx-text-fill: white; -fx-font-size: 19px; -fx-font-weight: bold; }
+.welcome { -fx-text-fill: #e7edf7; }
+.primary { -fx-background-color: #1f6f8b; -fx-text-fill: white; -fx-font-weight: bold; }
+.primary:hover { -fx-background-color: #15566d; }
+.section-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #14213d; }
+.main-tabs > .tab-header-area { -fx-padding: 6 16 0 16; -fx-background-color: white; }
+.table-view { -fx-background-radius: 8; -fx-border-color: #d8e0ea; -fx-border-radius: 8; }
+.text-field, .password-field, .text-area, .combo-box, .date-picker { -fx-background-radius: 5; }
