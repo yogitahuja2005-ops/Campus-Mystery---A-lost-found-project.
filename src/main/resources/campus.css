@@ -10,5 +10,8 @@
 .primary:hover { -fx-background-color: #15566d; }
 .section-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #14213d; }
 .main-tabs > .tab-header-area { -fx-padding: 6 16 0 16; -fx-background-color: white; }
+.page-scroll { -fx-background-color: transparent; -fx-background: #f5f7fb; }
+.page-scroll > .viewport { -fx-background-color: transparent; }
+.form-footer { -fx-background-color: white; -fx-border-color: #d8e0ea transparent transparent transparent; }
 .table-view { -fx-background-radius: 8; -fx-border-color: #d8e0ea; -fx-border-radius: 8; }
 .text-field, .password-field, .text-area, .combo-box, .date-picker { -fx-background-radius: 5; }

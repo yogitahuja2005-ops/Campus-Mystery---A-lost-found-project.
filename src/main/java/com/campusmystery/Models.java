@@ -12,12 +12,12 @@ public final class Models {
     }
 
     public record LostItem(int id, int userId, String name, String category, String colour,
-                           String location, LocalDate date, String description, String status) {
+                           String location, LocalDate date, String description, String photoPath, String status) {
         @Override public String toString() { return "#" + id + "  " + name + " — " + status; }
     }
 
     public record FoundItem(int id, String name, String category, String colour, String location,
-                            LocalDate date, String description, String status) {
+                            LocalDate date, String description, String photoPath, String status) {
         @Override public String toString() { return "#" + id + "  " + name + " — " + status; }
     }
 

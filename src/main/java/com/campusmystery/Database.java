@@ -42,8 +42,8 @@ public final class Database {
     private void createSchema() throws SQLException {
         String[] sql = {
             "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('STUDENT','ADMIN')))",
-            "CREATE TABLE IF NOT EXISTS found_items (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT NOT NULL, category TEXT NOT NULL, colour TEXT NOT NULL, found_location TEXT NOT NULL, found_date TEXT NOT NULL, public_description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'AVAILABLE', created_by INTEGER NOT NULL, FOREIGN KEY(created_by) REFERENCES users(id))",
-            "CREATE TABLE IF NOT EXISTS lost_items (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, item_name TEXT NOT NULL, category TEXT NOT NULL, colour TEXT NOT NULL, lost_location TEXT NOT NULL, lost_date TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN', FOREIGN KEY(user_id) REFERENCES users(id))",
+            "CREATE TABLE IF NOT EXISTS found_items (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT NOT NULL, category TEXT NOT NULL, colour TEXT NOT NULL, found_location TEXT NOT NULL, found_date TEXT NOT NULL, public_description TEXT NOT NULL, photo_path TEXT, status TEXT NOT NULL DEFAULT 'AVAILABLE', created_by INTEGER NOT NULL, FOREIGN KEY(created_by) REFERENCES users(id))",
+            "CREATE TABLE IF NOT EXISTS lost_items (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, item_name TEXT NOT NULL, category TEXT NOT NULL, colour TEXT NOT NULL, lost_location TEXT NOT NULL, lost_date TEXT NOT NULL, description TEXT NOT NULL, photo_path TEXT, status TEXT NOT NULL DEFAULT 'OPEN', FOREIGN KEY(user_id) REFERENCES users(id))",
             "CREATE TABLE IF NOT EXISTS verification_questions (id INTEGER PRIMARY KEY AUTOINCREMENT, found_id INTEGER NOT NULL, question TEXT NOT NULL, answer_hash TEXT NOT NULL, FOREIGN KEY(found_id) REFERENCES found_items(id) ON DELETE CASCADE)",
             "CREATE TABLE IF NOT EXISTS claims (id INTEGER PRIMARY KEY AUTOINCREMENT, found_id INTEGER NOT NULL, claimant_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'VERIFICATION_REQUIRED', attempt_count INTEGER NOT NULL DEFAULT 0, score REAL NOT NULL DEFAULT 0, admin_note TEXT DEFAULT '', submitted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(found_id, claimant_id), FOREIGN KEY(found_id) REFERENCES found_items(id), FOREIGN KEY(claimant_id) REFERENCES users(id))",
             "CREATE TABLE IF NOT EXISTS claim_answers (id INTEGER PRIMARY KEY AUTOINCREMENT, claim_id INTEGER NOT NULL, question_id INTEGER NOT NULL, attempt_number INTEGER NOT NULL, is_correct INTEGER NOT NULL, FOREIGN KEY(claim_id) REFERENCES claims(id) ON DELETE CASCADE, FOREIGN KEY(question_id) REFERENCES verification_questions(id))",
@@ -51,7 +51,17 @@ public final class Database {
         };
         try (Connection c = connection(); Statement s = c.createStatement()) {
             for (String statement : sql) s.execute(statement);
+            ensureColumn(c, "found_items", "photo_path", "photo_path TEXT");
+            ensureColumn(c, "lost_items", "photo_path", "photo_path TEXT");
         }
+    }
+
+    /** Adds optional photo support without breaking an existing demonstration database. */
+    private void ensureColumn(Connection c, String table, String column, String definition) throws SQLException {
+        try (Statement s = c.createStatement(); ResultSet columns = s.executeQuery("PRAGMA table_info(" + table + ")")) {
+            while (columns.next()) if (column.equalsIgnoreCase(columns.getString("name"))) return;
+        }
+        try (Statement s = c.createStatement()) { s.execute("ALTER TABLE " + table + " ADD COLUMN " + definition); }
     }
 
     private void seedDemoData() throws SQLException {
@@ -90,15 +100,20 @@ public final class Database {
 
     public void addFoundItem(int creator, String name, String category, String colour, String location,
                              LocalDate date, String description, List<Secret> secrets) throws SQLException {
-        if (secrets.size() < 3) throw new IllegalArgumentException("Enter at least three private verification questions.");
-        String itemSql = "INSERT INTO found_items(item_name,category,colour,found_location,found_date,public_description,created_by) VALUES(?,?,?,?,?,?,?)";
+        addFoundItem(creator, name, category, colour, location, date, description, null, secrets);
+    }
+
+    public void addFoundItem(int creator, String name, String category, String colour, String location,
+                             LocalDate date, String description, String photoPath, List<Secret> secrets) throws SQLException {
+        if (secrets.isEmpty()) throw new IllegalArgumentException("Enter at least one private verification question.");
+        String itemSql = "INSERT INTO found_items(item_name,category,colour,found_location,found_date,public_description,photo_path,created_by) VALUES(?,?,?,?,?,?,?,?)";
         String questionSql = "INSERT INTO verification_questions(found_id,question,answer_hash) VALUES(?,?,?)";
         try (Connection c = connection()) {
             c.setAutoCommit(false);
             try (PreparedStatement item = c.prepareStatement(itemSql, Statement.RETURN_GENERATED_KEYS);
                  PreparedStatement question = c.prepareStatement(questionSql)) {
                 item.setString(1, name); item.setString(2, category); item.setString(3, colour); item.setString(4, location);
-                item.setString(5, date.toString()); item.setString(6, description); item.setInt(7, creator); item.executeUpdate();
+                item.setString(5, date.toString()); item.setString(6, description); item.setString(7, optional(photoPath)); item.setInt(8, creator); item.executeUpdate();
                 try (ResultSet keys = item.getGeneratedKeys()) {
                     if (!keys.next()) throw new SQLException("No item id returned");
                     int foundId = keys.getInt(1);
@@ -115,10 +130,15 @@ public final class Database {
 
     public void addLostItem(int userId, String name, String category, String colour, String location,
                             LocalDate date, String description) throws SQLException {
-        String sql = "INSERT INTO lost_items(user_id,item_name,category,colour,lost_location,lost_date,description) VALUES(?,?,?,?,?,?,?)";
+        addLostItem(userId, name, category, colour, location, date, description, null);
+    }
+
+    public void addLostItem(int userId, String name, String category, String colour, String location,
+                            LocalDate date, String description, String photoPath) throws SQLException {
+        String sql = "INSERT INTO lost_items(user_id,item_name,category,colour,lost_location,lost_date,description,photo_path) VALUES(?,?,?,?,?,?,?,?)";
         try (Connection c = connection(); PreparedStatement p = c.prepareStatement(sql)) {
             p.setInt(1, userId); p.setString(2, name); p.setString(3, category); p.setString(4, colour);
-            p.setString(5, location); p.setString(6, date.toString()); p.setString(7, description); p.executeUpdate();
+            p.setString(5, location); p.setString(6, date.toString()); p.setString(7, description); p.setString(8, optional(photoPath)); p.executeUpdate();
         }
     }
 
@@ -131,8 +151,28 @@ public final class Database {
         return result;
     }
 
+    /** Includes closed reports so a student can see every report they submitted. */
+    public List<Models.LostItem> allLostItemsFor(int userId) throws SQLException {
+        String sql = "SELECT * FROM lost_items WHERE user_id=? ORDER BY id DESC";
+        List<Models.LostItem> result = new ArrayList<>();
+        try (Connection c = connection(); PreparedStatement p = c.prepareStatement(sql)) {
+            p.setInt(1, userId); try (ResultSet r = p.executeQuery()) { while (r.next()) result.add(lost(r)); }
+        }
+        return result;
+    }
+
     public List<Models.FoundItem> availableFoundItems() throws SQLException {
         String sql = "SELECT * FROM found_items WHERE status <> 'RETURNED' ORDER BY found_date DESC, id DESC";
+        List<Models.FoundItem> result = new ArrayList<>();
+        try (Connection c = connection(); Statement p = c.createStatement(); ResultSet r = p.executeQuery(sql)) {
+            while (r.next()) result.add(found(r));
+        }
+        return result;
+    }
+
+    /** The public signed-in register includes returned items and their status. */
+    public List<Models.FoundItem> allFoundItems() throws SQLException {
+        String sql = "SELECT * FROM found_items ORDER BY found_date DESC, id DESC";
         List<Models.FoundItem> result = new ArrayList<>();
         try (Connection c = connection(); Statement p = c.createStatement(); ResultSet r = p.executeQuery(sql)) {
             while (r.next()) result.add(found(r));
@@ -291,13 +331,15 @@ public final class Database {
 
     private Models.LostItem lost(ResultSet r) throws SQLException {
         return new Models.LostItem(r.getInt("id"), r.getInt("user_id"), r.getString("item_name"), r.getString("category"),
-                r.getString("colour"), r.getString("lost_location"), LocalDate.parse(r.getString("lost_date")), r.getString("description"), r.getString("status"));
+                r.getString("colour"), r.getString("lost_location"), LocalDate.parse(r.getString("lost_date")), r.getString("description"), r.getString("photo_path"), r.getString("status"));
     }
 
     private Models.FoundItem found(ResultSet r) throws SQLException {
         return new Models.FoundItem(r.getInt("id"), r.getString("item_name"), r.getString("category"), r.getString("colour"),
-                r.getString("found_location"), LocalDate.parse(r.getString("found_date")), r.getString("public_description"), r.getString("status"));
+                r.getString("found_location"), LocalDate.parse(r.getString("found_date")), r.getString("public_description"), r.getString("photo_path"), r.getString("status"));
     }
+
+    private static String optional(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 
     private static String answerHash(String value) { return sha256(value.trim().toLowerCase()); }
     private static String sha256(String value) {
